@@ -1,0 +1,287 @@
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/1.4.6/socket.io.js" ></script>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.6.4/jquery.min.js"></script>
+<script src="adapter1.js"></script>
+<script type="text/javascript" src="ejs_production.js"></script>
+<link rel="stylesheet" href="w3.css" />
+
+
+<body>
+<!--
+<input type="text" id="user" placeholder="name" /><br/><br/>
+<input type="text" id="room" placeholder="room" /><br/><br/>
+<button type="button" onclick="start(this);">Start</button><br/><br/>
+-->
+	<div class="w3-container w3-teal ">
+		<h1 class="w3-container w3-half" id="heading"></h1>
+		<h3 class="w3-container w3-text-black w3-right" id="roomname"></h1>
+	</div>
+	
+	<div class="w3-container w3-quarter" >
+	<h2>Chat Window</h2>
+	<ul id="chatWindow" class="w3-ul w3-border w3-round-large w3-card-4">
+	
+	</ul>
+	<div class="w3-card-4 w3-margin-top w3-center">
+	<input class="w3-input w3-leftbar w3-border-red" placeholder="Type here to Send.." type="text" id="msg" />
+	<button class="w3-btn w3-margin w3-red w3-hover-red w3-round w3-ripple" type="button" onclick="send(this);">Send</button>
+	</div>
+	</div>
+
+
+<div class="w3-container w3-center w3-half">
+	<div class="w3-container w3-center">
+		<h2 class="w3-container w3-text-teal">Select User to Call</h2>
+	</div>
+	<select class="w3-select  w3-round" id="allUsers">
+		<option value="none">select one---</option>
+
+	</select>
+	<button class="w3-btn w3-round w3-margin w3-red" type="button" onclick="connect(this);">Connect</button><br/><br/>
+</div>
+
+
+<div id="videos">
+	<div class="w3-container w3-quarter">
+		<div class="w3-container w3-center"><b>You</b></div>
+		<video id="localVideo" width="320" height="240" autoplay muted></video>
+	</div>
+</div>
+
+</body>
+
+
+<script>
+	//var user = prompt("Give your Username");
+	//var room =prompt("Give your Room");
+	var user = "<%= user %>";
+	var room ="<%= room %>";
+	
+	var socket = io.connect('http://10.4.160.111:8888');
+	
+	var chat = document.getElementById('chatWindow');
+	var users = document.getElementById('allUsers');
+	var videos = document.getElementById('videos');
+	var msg = document.getElementById('msg');
+	var peerd = [];
+	var localVideo = document.getElementById('localVideo'), remoteVideo = {}, localVideoStream = null,
+    peerConnCfg = {'iceServers': 
+      [{'url': 'stun:stun.services.mozilla.com'}, {'url': 'stun:stun.l.google.com:19302'}]
+    };
+	
+	
+	socket.on('connect',function(){
+		socket.emit('addUser',user,room);
+		document.getElementById("heading").innerHTML="Welcome "+user;
+		document.getElementById("roomname").innerHTML="Your Room Name is: "+room;
+	});
+	
+	socket.on('updateChat',function(username,data){
+		chat.innerHTML += '<li><b>'+username+'</b> : '+data+'</li>';
+	});
+	
+	socket.on('updateUsers',function(usernames,username){
+		users.innerHTML="";
+		for(i in usernames){
+			if(user!=usernames[i]){
+				users.innerHTML+='<option value='+usernames[i]+'>'+usernames[i]+'</option>';
+			}
+		};
+		console.log(usernames);
+		
+	});
+	
+	function send(e){
+		var data=msg.value;
+		socket.emit('chatMessage',data);
+		chat.innerHTML += '<li><b>'+user+'</b> : '+data+'</li>';
+		msg.value="";
+	};
+	
+function onIceCandidateHandler(evt) {
+  if (!evt || !evt.candidate) return;
+  //wsc.send(JSON.stringify({"candidate": evt.candidate }));
+	socket.emit('chat message' , JSON.stringify({"candidate": evt.candidate,"choosed":choosed }));
+	console.log("Event.Candidate: "+evt.candidate);
+};
+
+function onAddStreamHandler(evt) {
+  //videoCallButton.setAttribute("disabled", true);
+  //endCallButton.removeAttribute("disabled"); 
+  // set remote video stream as source for remote video HTML5 element
+  remoteVideo.src = URL.createObjectURL(evt.stream);
+};
+
+function createAndSendOffer(choosed) {
+	console.log('Creating and sending offer');
+  peerd[choosed].createOffer(
+    function (offer) {
+      var off = new RTCSessionDescription(offer);
+      peerd[choosed].setLocalDescription(new RTCSessionDescription(off), 
+        function() {
+     //     wsc.send(JSON.stringify({"sdp": off }));
+      socket.emit('chat message' , JSON.stringify({"sdp": off,"choosed":choosed })); 
+	  console.log('offer send');
+	  }, 
+        function(error) { 
+          console.log(error);
+        }
+      );
+    }, 
+    function (error) { 
+      console.log(error);
+    }
+  );
+};	
+	
+function prepareCall(choosed) {
+	console.log('preparing call for '+choosed);
+    peerd[choosed] = new RTCPeerConnection(peerConnCfg);
+  // send any ice candidates to the other peer
+    peerd[choosed].onicecandidate = function(evt) {
+		if (!evt || !evt.candidate) return;
+		//wsc.send(JSON.stringify({"candidate": evt.candidate }));
+		socket.emit('chat message' , JSON.stringify({"candidate": evt.candidate,"choosed":choosed }));
+		console.log("Event.Candidate: "+evt.candidate);
+	};
+  // once remote stream arrives, show it in the remote video element
+  peerd[choosed].onaddstream = function(evt) {
+		//videoCallButton.setAttribute("disabled", true);
+		//endCallButton.removeAttribute("disabled"); 
+		// set remote video stream as source for remote video HTML5 element
+		remoteVideo[choosed].src = URL.createObjectURL(evt.stream);
+	};
+};
+	
+	
+function initiateCall(choosed) {
+  prepareCall(choosed);
+  // get the local stream, show it in the local video element and send it
+  navigator.getUserMedia({ "audio": true, "video": {
+							width: {exact: 320},    //new syntax
+							height: {exact: 240}   
+							} 
+}, function (stream) {
+    localVideoStream = stream;
+    localVideo.src = URL.createObjectURL(localVideoStream);
+    peerd[choosed].addStream(localVideoStream);
+    createAndSendOffer(choosed);
+	console.log('offer sent');
+  }, function(error) { console.log(error);});
+};
+	
+	
+	
+function connect(e){
+		console.log("Choosed User is: "+users.value);
+		var choosed=users.value;
+		videos.innerHTML +='<div class="w3-container w3-quarter">'+
+		'<div class="w3-container w3-center"><b>'+choosed+'</b></div>'+
+		'<video width="320" height="240" id='+choosed+' autoplay></video>'+
+		'</div>';
+		// peerd[choosed]=choosed;
+		/*
+		
+		<div class="w3-container w3-quarter">
+		<div class="w3-container w3-center"><b>You</b></div>
+		<video id="localVideo" width="320" height="240" autoplay muted></video>
+	</div>	
+		
+		*/
+	if(navigator.getUserMedia) {
+    localVideo = document.getElementById('localVideo');
+    remoteVideo[choosed] = document.getElementById(choosed);
+	initiateCall(choosed);
+  } else {
+    alert("Sorry, your browser does not support WebRTC!")
+  }
+	
+	
+		
+		
+	};
+	
+
+function createAndSendAnswer(choosed) {
+  peerd[choosed].createAnswer(
+    function (answer) {
+      var ans = new RTCSessionDescription(answer);
+      peerd[choosed].setLocalDescription(ans, function() {
+         // wsc.send(JSON.stringify({"sdp": ans }));
+      socket.emit('chat message' , JSON.stringify({"sdp": ans,"choosed":choosed }));  
+	  console.log('answer send to '+choosed);
+	  }, 
+        function (error) { 
+          console.log(error);
+        }
+      );
+    },
+    function (error) { 
+      console.log(error);
+    }
+  );
+};
+
+	
+	
+	
+function answerCall(choosed) {
+  prepareCall(choosed);
+  console.log("Answering call of : "+choosed );
+  // get the local stream, show it in the local video element and send it
+  navigator.getUserMedia({ 
+		"audio": true, "video": {
+							width: {exact: 320},    //new syntax
+							height: {exact: 240}   
+							}
+	}, function (stream) {
+		localVideoStream = stream;
+		localVideo.src = URL.createObjectURL(localVideoStream);
+		peerd[choosed].addStream(localVideoStream);
+		createAndSendAnswer(choosed);
+	}, function(error) { console.log(error);});
+};	
+	
+	
+	
+socket.on('chat message', function(msg){
+
+  var signal = null;
+  signal = JSON.parse(msg);
+  var choosed = signal.choosed;
+  if (!peerd[choosed]){
+	videos.innerHTML +='<div class="w3-container w3-quarter">'+
+		'<div class="w3-container w3-center"><b>'+choosed+'</b></div>'+
+		'<video width="320" height="240" id='+choosed+' autoplay></video>'+
+		'</div>';
+	remoteVideo[choosed] = document.getElementById(choosed);
+	localVideo = document.getElementById('localVideo');
+		answerCall(choosed);
+		
+	
+	}
+  
+  if (signal.sdp) {
+    peerd[choosed].setRemoteDescription(new RTCSessionDescription(signal.sdp));
+  }
+  else if (signal.candidate) {
+    peerd[choosed].addIceCandidate(new RTCIceCandidate(signal.candidate));
+  } else if ( signal.closeConnection){
+    endCall(choosed);
+  }
+
+
+});
+	
+	
+function endCall(choosed) {
+  peerd[choosed].close();
+  delete peerd[choosed] ;
+  //videoCallButton.removeAttribute("disabled");
+  //endCallButton.setAttribute("disabled", true);
+  /*localVideoStream.getTracks().forEach(function (track) {
+    track.stop();
+  });
+  localVideo.src = "";*/
+  remoteVideo[choosed].src = "";
+};
+</script>
